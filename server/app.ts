@@ -1,8 +1,9 @@
 import express, { Request, Response, NextFunction } from "express";
+export const app = express();
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import { ErrorMiddleWare } from "./middleware/Error";
-export const app = express();
+import userRouter from "./routes/user.routes";
 
 // cookie parser
 app.use(express.json({ limit: "50mb" }));
@@ -14,12 +15,13 @@ app.use(cookieParser());
 app.use(
   cors({
     origin: process.env.ORIGIN,
-    credentials: true,
   })
 );
 
-//testing api
+// routes
+app.use("/api/v1", userRouter);
 
+//testing api
 app.get("/test", (req: Request, res: Response, next: NextFunction) => {
   res.status(200).json({
     success: true,
@@ -29,10 +31,9 @@ app.get("/test", (req: Request, res: Response, next: NextFunction) => {
 
 //unknown routes
 app.all("*", (req: Request, res: Response, next: NextFunction) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-  });
+  const err = new Error(`Can't find ${req.originalUrl} on this server`) as any;
+  err.statusCode = 404;
+  next(err);
 });
 
 app.use(ErrorMiddleWare);
