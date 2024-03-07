@@ -1,6 +1,6 @@
 require("dotenv").config();
 import { Request, Response, NextFunction } from "express";
-import userModel from "../models/user.model";
+import userModel, { IUser } from "../models/user.model";
 import ErrorHandler from "../utils/ErrorHandler";
 import CatchAsyncError from "../middleware/catchAsyncErros";
 import jwt, { Secret } from "jsonwebtoken";
@@ -25,11 +25,11 @@ export const registrationUser = CatchAsyncError(
       if (doesEmailExist) {
         return next(new ErrorHandler("Email already exists", 400));
       }
-      const user = await userModel.create({
+      const user: IRegisterUser = {
         name,
         email,
         password,
-      });
+      };
       const activationToken = createActivationToken(user);
 
       const activationCode = activationToken.activationCode;
@@ -59,7 +59,7 @@ export const registrationUser = CatchAsyncError(
             "Registration successful, please check your email: " +
             user.email +
             " to activate your account",
-          activationToken: activationToken.activationCode,
+          activationToken: activationToken.token,
         });
       } catch (error: any) {
         return next(new ErrorHandler(error.message, 500));
@@ -94,3 +94,49 @@ export const createActivationToken = (user: any): IActivationToken => {
     activationCode,
   };
 };
+
+interface IActivationRequest {
+  activation_token: string;
+  activation_code: string;
+}
+
+export const activateUser = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { activation_token, activation_code } =
+        req.body as IActivationRequest;
+
+      const newUser: { user: IUser; activationCode: string } = jwt.verify(
+        activation_token,
+        process.env.ACTIVATION_SECRET as Secret
+      ) as { user: IUser; activationCode: string };
+
+      if (newUser.activationCode !== activation_code) {
+        console.log(activation_code, newUser.activationCode);
+        return next(new ErrorHandler("Invalid activation code", 400));
+      }
+
+      const { name, email, password } = newUser.user;
+      const doesUserExist = await userModel.findOne({
+        email: newUser.user.email,
+      });
+
+      if (doesUserExist) {
+        return next(new ErrorHandler("User already exists", 400));
+      }
+
+      const user = await userModel.create({
+        name,
+        email,
+        password,
+      });
+
+      res.status(201).json({
+        success: true,
+      });
+      console.log("user created: ", user);
+    } catch (error: any) {
+      return next(new ErrorHandler(error.message, 400));
+    }
+  }
+);
