@@ -13,6 +13,7 @@ import {
   sendToken,
 } from "../utils/jwt";
 import { redis } from "../utils/redis";
+import { getUserById } from "../services/user.service";
 
 //register user interface
 interface IRegisterUser {
@@ -249,6 +250,87 @@ export const updateAccessToken = CatchAsyncError(
       res.status(200).json({
         success: true,
         accessToken,
+      });
+    } catch (error) {
+      return next(new ErrorHandler(error as string, 400));
+    }
+  }
+);
+
+// get user info
+
+export const getUserInfo = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.user?._id;
+      getUserById(userId, res);
+    } catch (error) {
+      return next(new ErrorHandler(error as string, 400));
+    }
+  }
+);
+
+//  social auth
+interface ISocialAuth {
+  name: string;
+  email: string;
+  avatar: string;
+}
+
+export const getSocialAuth = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { email, name, avatar } = req.body as ISocialAuth;
+      const user = await userModel.findOne({ email });
+      if (!user) {
+        const newUser = await userModel.create({
+          name,
+          email,
+          avatar,
+        });
+        sendToken(newUser, 200, res);
+      } else {
+        sendToken(user, 200, res);
+      }
+    } catch (error) {
+      return next(new ErrorHandler(error as string, 400));
+    }
+  }
+);
+
+// update user info
+
+interface IUpdateUser {
+  name?: string;
+  email?: string;
+}
+
+export const updateUserInfo = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name, email } = req.body as IUpdateUser;
+      const userId = req.user?._id;
+      const user = await userModel.findById(userId);
+
+      if (email && user) {
+        const doesEmailExist = await userModel.findOne({ email });
+        if (doesEmailExist) {
+          return next(new ErrorHandler("Email already exists", 400));
+        }
+        user.email = email;
+      }
+
+      if (name && user) {
+        user.name = name;
+      }
+
+      await user?.save();
+
+      await redis.set(userId, JSON.stringify(user));
+
+      res.status(201).json({
+        success: true,
+        user,
       });
     } catch (error) {
       return next(new ErrorHandler(error as string, 400));
