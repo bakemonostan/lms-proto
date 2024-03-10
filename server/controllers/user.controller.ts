@@ -1,5 +1,6 @@
 require("dotenv").config();
 import { Request, Response, NextFunction } from "express";
+import cloudinary from "cloudinary";
 import userModel, { IUser } from "../models/user.model";
 import ErrorHandler from "../utils/ErrorHandler";
 import CatchAsyncError from "../middleware/catchAsyncErros";
@@ -326,6 +327,103 @@ export const updateUserInfo = CatchAsyncError(
 
       await user?.save();
 
+      await redis.set(userId, JSON.stringify(user));
+
+      res.status(201).json({
+        success: true,
+        user,
+      });
+    } catch (error) {
+      return next(new ErrorHandler(error as string, 400));
+    }
+  }
+);
+
+// update user password
+
+interface IUpdatePassword {
+  oldPassword: string;
+  newPassword: string;
+}
+
+export const updateUserPassword = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { oldPassword, newPassword } = req.body as IUpdatePassword;
+
+      if (!oldPassword || !newPassword) {
+        return next(
+          new ErrorHandler("Please provide old and new password", 400)
+        );
+      }
+      const user = await userModel.findById(req.user?._id).select("+password");
+
+      if (user?.password === undefined) {
+        return next(
+          new ErrorHandler("Please provide old and new password", 400)
+        );
+      }
+
+      const doPasswordsMatch = await user.comparePassword(oldPassword);
+      user.password = newPassword;
+      await user.save();
+
+      await redis.set(req.user?._id, JSON.stringify(user));
+
+      if (!doPasswordsMatch) {
+        return next(new ErrorHandler("Old password is incorrect", 400));
+      }
+
+      res.status(201).json({
+        success: true,
+        user,
+      });
+    } catch (error) {
+      return next(new ErrorHandler(error as string, 400));
+    }
+  }
+);
+
+// update user avatar
+
+interface IupdateUserAvatar {
+  avatar: string;
+}
+
+export const updateUserAvatar = CatchAsyncError(
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { avatar } = req.body as IupdateUserAvatar;
+
+      const userId = req.user?._id;
+
+      const user = await userModel.findById(userId);
+
+      if (avatar && user) {
+        if (user?.avatar.public_id) {
+          await cloudinary.v2.uploader.destroy(user?.avatar.public_id);
+
+          const myCloud = await cloudinary.v2.uploader.upload(avatar, {
+            folder: "avatars",
+            width: 150,
+          });
+          user.avatar = {
+            public_id: myCloud.public_id,
+            url: myCloud.secure_url,
+          };
+        } else {
+          const myCloud = await cloudinary.v2.uploader.upload(avatar, {
+            folder: "avatars",
+            width: 150,
+          });
+          user.avatar = {
+            public_id: myCloud.public_id,
+            url: myCloud.secure_url,
+          };
+        }
+      }
+
+      await user?.save();
       await redis.set(userId, JSON.stringify(user));
 
       res.status(201).json({
